@@ -93,3 +93,27 @@ bash scripts/run_export_jsonl.sh
 - quaternion에서는 z축 회전 성분인 yaw만 추출하고 roll, pitch 성분은 버립니다.
 - 각 파일의 첫 pose를 자기 odom frame의 원점으로 보고, 첫 pose가 `(odom_x, odom_y, odom_theta) = (0, 0, 0)`이 되도록 전체 trajectory를 상대 좌표로 변환합니다.
 - `odom_theta`는 radian 단위이며, 각도 discontinuity를 줄이기 위해 unwrap된 yaw 차이를 저장합니다.
+
+## Temporal Alignment
+
+두 JSONL trajectory 사이의 timestamp calibration을 NCC로 추정하고 보정하려면 다음 스크립트를 실행합니다.
+
+```bash
+bash scripts/run_temporal_alignment.sh
+```
+
+NCC는 `speed`와 `yaw rate` feature를 사용합니다. 기본 lag 후보 범위는 `-5초 ~ +5초`이고, 각 후보 lag마다 짧은 sliding window가 아니라 전체 overlap 구간의 NCC score를 계산합니다.
+
+생성되는 파일:
+
+- `data/Odom_temporal_aligned.jsonl`
+- `data/pose_GT_by_mocap_temporal_aligned.jsonl`
+- `results/summaries/temporal_alignment_summary.json`
+- `results/summaries/temporal_alignment_summary.txt`
+- `results/diagnostics/temporal_ncc.png`
+
+추정 offset의 convention은 다음과 같습니다.
+
+```text
+gt_motion(t + gt_time_offset_sec) ~= odom_motion(t)
+```
