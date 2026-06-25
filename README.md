@@ -66,3 +66,30 @@ x' = cos(theta) * x - sin(theta) * y + offset_x
 y' = sin(theta) * x + cos(theta) * y + offset_y
 yaw' = yaw + offset_theta
 ```
+
+## JSONL Export
+
+TUM trajectory를 2D odometry 학습용 JSONL로 변환하려면 다음 스크립트를 실행합니다.
+
+```bash
+bash scripts/run_export_jsonl.sh
+```
+
+생성되는 파일:
+
+- `data/Odom.jsonl`
+- `data/pose_GT_by_mocap.jsonl`
+
+각 JSONL 파일은 한 줄에 하나의 pose를 담고, key는 다음 네 개만 사용합니다.
+
+```json
+{"timestamp":1769620191.2758064,"odom_x":0.0,"odom_y":0.0,"odom_theta":0.0}
+```
+
+변환 규칙:
+
+- 원본 TUM의 `timestamp`는 그대로 유지합니다.
+- `tx`, `ty`만 사용하고 `tz`는 버립니다.
+- quaternion에서는 z축 회전 성분인 yaw만 추출하고 roll, pitch 성분은 버립니다.
+- 각 파일의 첫 pose를 자기 odom frame의 원점으로 보고, 첫 pose가 `(odom_x, odom_y, odom_theta) = (0, 0, 0)`이 되도록 전체 trajectory를 상대 좌표로 변환합니다.
+- `odom_theta`는 radian 단위이며, 각도 discontinuity를 줄이기 위해 unwrap된 yaw 차이를 저장합니다.
