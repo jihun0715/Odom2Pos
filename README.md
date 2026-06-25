@@ -141,3 +141,15 @@ bash scripts/run_train_rnn.sh
 - `results/training/train_history.json`
 - `results/training/loss_curve.png`
 - `results/training/prediction_preview.png`
+
+`prediction_preview.png`에는 validation 구간의 GT, 모델 prediction, raw odom input을 함께 표시합니다.
+
+학습된 checkpoint로 전체 odom input을 변환해 JSONL을 만들려면 다음 스크립트를 실행합니다.
+
+```bash
+bash scripts/run_inference.sh
+```
+
+생성되는 파일:
+
+- `data/Odom_model_prediction.jsonl`
