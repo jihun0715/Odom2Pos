@@ -44,9 +44,25 @@ bash scripts/run_visualization.sh
 
 생성되는 주요 결과:
 
-- `results/trajectory_xy.png`: odom과 mocap GT의 XY trajectory 비교
-- `results/position_vs_time.png`: x, y, z position time-series 비교
-- `results/yaw_vs_time.png`: quaternion에서 계산한 yaw time-series 비교
-- `results/sampling_intervals.png`: 각 파일의 sampling interval 비교
-- `results/aligned_time_comparison.png`: 공통 시간 구간에서 GT timestamp 기준으로 odom을 보간한 비교
-- `results/tum_summary.json`, `results/tum_summary.txt`: 행 수, 시간 범위, 중복 timestamp, sampling 통계
+- `results/raw/`: 정합 전 원본 odom과 mocap GT 비교 그래프
+  - `trajectory_xy.png`: XY trajectory 비교
+  - `position_vs_time.png`: x, y, z position time-series 비교
+  - `yaw_vs_time.png`: quaternion에서 계산한 yaw time-series 비교
+  - `time_aligned_comparison.png`: 공통 시간 구간에서 GT timestamp 기준으로 odom을 보간한 비교
+- `results/initial_alignment/`: 초기 pose 기준 2D offset 정합 후 비교 그래프
+  - `trajectory_xy.png`: 공통 시간 구간 XY trajectory 비교
+  - `position_vs_time.png`: 초기 정합 후 x, y, z position time-series 비교
+  - `yaw_vs_time.png`: 초기 정합 후 yaw time-series 비교
+  - `time_aligned_comparison.png`: 초기 정합 후 공통 시간 구간 timestamp-aligned 비교
+- `results/diagnostics/sampling_intervals.png`: 각 파일의 sampling interval 비교
+- `results/summaries/`: TUM 데이터 통계와 초기 정합 summary
+  - `tum_summary.json`, `tum_summary.txt`
+  - `initial_alignment_summary.json`, `initial_alignment_summary.txt`
+
+초기 정합은 공통 시간 구간의 시작 시점에서 odom pose가 GT pose와 일치하도록 다음 2D transform을 자동 계산합니다. 이 단계에서는 `x`, `y`, `yaw`만 정합하며 `z`는 odom 원본 값을 유지합니다.
+
+```text
+x' = cos(theta) * x - sin(theta) * y + offset_x
+y' = sin(theta) * x + cos(theta) * y + offset_y
+yaw' = yaw + offset_theta
+```

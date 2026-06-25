@@ -9,8 +9,8 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
 fi
 
 cd "${ROOT_DIR}"
-export MPLCONFIGDIR="${MPLCONFIGDIR:-${ROOT_DIR}/results/.mplconfig}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${ROOT_DIR}/results/.cache}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-${XDG_CACHE_HOME}/matplotlib}"
 export PYTHONDONTWRITEBYTECODE=1
 
 "${PYTHON_BIN}" src/visualize_tum.py \
