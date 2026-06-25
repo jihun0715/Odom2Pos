@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Estimate and apply temporal offset between two odometry JSONL trajectories."""
+"""Estimate and apply temporal offset between two velocity JSONL trajectories."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-JSONL_COLUMNS = ("timestamp", "odom_x", "odom_y", "odom_theta")
+JSONL_COLUMNS = ("timestamp", "vx", "vy", "vtheta")
 FEATURE_CHANNELS = ("speed", "omega")
 STD_EPSILON = 1e-9
 ZERO_EPSILON = 1e-12
@@ -38,15 +38,15 @@ class Trajectory2D:
         return self.data[:, 0]
 
     @property
-    def x(self) -> np.ndarray:
+    def vx(self) -> np.ndarray:
         return self.data[:, 1]
 
     @property
-    def y(self) -> np.ndarray:
+    def vy(self) -> np.ndarray:
         return self.data[:, 2]
 
     @property
-    def theta(self) -> np.ndarray:
+    def vtheta(self) -> np.ndarray:
         return self.data[:, 3]
 
 
@@ -139,14 +139,10 @@ def moving_average(values: np.ndarray, window_samples: int) -> np.ndarray:
 
 def build_feature_series(traj: Trajectory2D, dt: float, smooth_sec: float) -> FeatureSeries:
     t_grid = make_uniform_time(traj.t[0], traj.t[-1], dt)
-    x = np.interp(t_grid, traj.t, traj.x)
-    y = np.interp(t_grid, traj.t, traj.y)
-    theta = np.interp(t_grid, traj.t, traj.theta)
-
-    vx = np.gradient(x, dt)
-    vy = np.gradient(y, dt)
+    vx = np.interp(t_grid, traj.t, traj.vx)
+    vy = np.interp(t_grid, traj.t, traj.vy)
+    omega = np.interp(t_grid, traj.t, traj.vtheta)
     speed = np.sqrt(vx * vx + vy * vy)
-    omega = np.gradient(theta, dt)
 
     window_samples = max(1, int(round(smooth_sec / dt)))
     speed = moving_average(speed, window_samples)
@@ -260,13 +256,13 @@ def estimate_offset(
     )
 
 
-def interp_pose(traj: Trajectory2D, query_t: np.ndarray) -> np.ndarray:
+def interp_velocity(traj: Trajectory2D, query_t: np.ndarray) -> np.ndarray:
     return np.column_stack(
         (
             query_t,
-            np.interp(query_t, traj.t, traj.x),
-            np.interp(query_t, traj.t, traj.y),
-            np.interp(query_t, traj.t, traj.theta),
+            np.interp(query_t, traj.t, traj.vx),
+            np.interp(query_t, traj.t, traj.vy),
+            np.interp(query_t, traj.t, traj.vtheta),
         )
     )
 
@@ -277,7 +273,7 @@ def zero_small_values(rows: np.ndarray) -> np.ndarray:
     return rows
 
 
-def aligned_pose_rows(
+def aligned_velocity_rows(
     odom: Trajectory2D, gt: Trajectory2D, lag_sec: float, dt: float
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
     start = max(odom.t[0], gt.t[0] - lag_sec)
@@ -289,8 +285,8 @@ def aligned_pose_rows(
     gt_query_t = odom_query_t + lag_sec
     rel_t = odom_query_t - odom_query_t[0]
 
-    odom_rows = interp_pose(odom, odom_query_t)
-    gt_rows = interp_pose(gt, gt_query_t)
+    odom_rows = interp_velocity(odom, odom_query_t)
+    gt_rows = interp_velocity(gt, gt_query_t)
     odom_rows[:, 0] = rel_t
     gt_rows[:, 0] = rel_t
     return (
@@ -309,12 +305,12 @@ def aligned_pose_rows(
 def write_jsonl(rows: np.ndarray, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
-        for timestamp, odom_x, odom_y, odom_theta in rows:
+        for timestamp, vx, vy, vtheta in rows:
             record = {
                 "timestamp": float(timestamp),
-                "odom_x": float(odom_x),
-                "odom_y": float(odom_y),
-                "odom_theta": float(odom_theta),
+                "vx": float(vx),
+                "vy": float(vy),
+                "vtheta": float(vtheta),
             }
             f.write(json.dumps(record, separators=(",", ":")) + "\n")
 
@@ -465,7 +461,7 @@ def plot_diagnostics(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Estimate temporal offset with NCC and export temporally aligned JSONL."
+        description="Estimate temporal offset with NCC and export temporally aligned velocity JSONL."
     )
     parser.add_argument("--odom-in", type=Path, default=Path("data/Odom.jsonl"))
     parser.add_argument("--gt-in", type=Path, default=Path("data/pose_GT_by_mocap.jsonl"))
@@ -506,7 +502,7 @@ def main() -> None:
         min_overlap_sec=args.min_overlap_sec,
     )
 
-    odom_rows, gt_rows, aligned_window = aligned_pose_rows(odom, gt, ncc.best_lag_sec, dt)
+    odom_rows, gt_rows, aligned_window = aligned_velocity_rows(odom, gt, ncc.best_lag_sec, dt)
     write_jsonl(odom_rows, args.odom_out)
     write_jsonl(gt_rows, args.gt_out)
     write_summary(

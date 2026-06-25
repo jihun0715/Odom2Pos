@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export TUM trajectories as origin-normalized 2D odometry JSONL."""
+"""Export TUM trajectories as first-frame 2D velocity JSONL."""
 
 from __future__ import annotations
 
@@ -29,6 +29,9 @@ def load_tum(path: Path) -> np.ndarray:
     if data.size == 0:
         raise ValueError(f"{path} has no finite trajectory rows.")
 
+    order = np.argsort(data[:, 0], kind="stable")
+    data = data[order]
+
     quat = data[:, 4:8]
     quat_norm = np.linalg.norm(quat, axis=1)
     valid_quat = quat_norm > 0.0
@@ -36,6 +39,15 @@ def load_tum(path: Path) -> np.ndarray:
     quat_norm = quat_norm[valid_quat]
     data[:, 4:8] = data[:, 4:8] / quat_norm[:, None]
     return data
+
+
+def unique_by_timestamp(data: np.ndarray) -> np.ndarray:
+    """Keep the last row for each duplicate timestamp."""
+    reversed_timestamps = data[::-1, 0]
+    _, reversed_indices = np.unique(reversed_timestamps, return_index=True)
+    keep_indices = data.shape[0] - 1 - reversed_indices
+    keep_indices.sort()
+    return data[keep_indices]
 
 
 def yaw_from_quaternion(quat_xyzw: np.ndarray) -> np.ndarray:
@@ -48,9 +60,8 @@ def yaw_from_quaternion(quat_xyzw: np.ndarray) -> np.ndarray:
     return np.arctan2(siny_cosp, cosy_cosp)
 
 
-def to_origin_normalized_2d(data: np.ndarray) -> np.ndarray:
-    """Return [timestamp, odom_x, odom_y, odom_theta] in the first pose frame."""
-    timestamps = data[:, 0]
+def to_first_frame_pose(data: np.ndarray) -> np.ndarray:
+    """Return [timestamp, x, y, theta] in the first pose frame."""
     xy = data[:, 1:3]
     yaw = np.unwrap(yaw_from_quaternion(data[:, 4:8]))
 
@@ -60,11 +71,35 @@ def to_origin_normalized_2d(data: np.ndarray) -> np.ndarray:
 
     c = np.cos(origin_yaw)
     s = np.sin(origin_yaw)
-    odom_x = c * delta_xy[:, 0] + s * delta_xy[:, 1]
-    odom_y = -s * delta_xy[:, 0] + c * delta_xy[:, 1]
-    odom_theta = yaw - origin_yaw
+    first_frame_x = c * delta_xy[:, 0] + s * delta_xy[:, 1]
+    first_frame_y = -s * delta_xy[:, 0] + c * delta_xy[:, 1]
+    first_frame_theta = yaw - origin_yaw
 
-    rows = np.column_stack((timestamps, odom_x, odom_y, odom_theta))
+    rows = np.column_stack((data[:, 0], first_frame_x, first_frame_y, first_frame_theta))
+    rows[:, 1:4][np.abs(rows[:, 1:4]) < ZERO_EPSILON] = 0.0
+    return rows
+
+
+def to_first_frame_velocity(data: np.ndarray) -> np.ndarray:
+    """Return [timestamp, vx, vy, vtheta] in the first pose frame."""
+    unique_pose = to_first_frame_pose(unique_by_timestamp(data))
+    if unique_pose.shape[0] < 2:
+        raise ValueError("At least two unique timestamps are required to compute velocity.")
+
+    t_unique = unique_pose[:, 0]
+    vx_unique = np.gradient(unique_pose[:, 1], t_unique)
+    vy_unique = np.gradient(unique_pose[:, 2], t_unique)
+    vtheta_unique = np.gradient(unique_pose[:, 3], t_unique)
+
+    timestamps = data[:, 0]
+    rows = np.column_stack(
+        (
+            timestamps,
+            np.interp(timestamps, t_unique, vx_unique),
+            np.interp(timestamps, t_unique, vy_unique),
+            np.interp(timestamps, t_unique, vtheta_unique),
+        )
+    )
     rows[:, 1:4][np.abs(rows[:, 1:4]) < ZERO_EPSILON] = 0.0
     return rows
 
@@ -72,19 +107,19 @@ def to_origin_normalized_2d(data: np.ndarray) -> np.ndarray:
 def write_jsonl(rows: np.ndarray, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
-        for timestamp, odom_x, odom_y, odom_theta in rows:
+        for timestamp, vx, vy, vtheta in rows:
             record = {
                 "timestamp": float(timestamp),
-                "odom_x": float(odom_x),
-                "odom_y": float(odom_y),
-                "odom_theta": float(odom_theta),
+                "vx": float(vx),
+                "vy": float(vy),
+                "vtheta": float(vtheta),
             }
             f.write(json.dumps(record, separators=(",", ":")) + "\n")
 
 
 def export_one(in_path: Path, out_path: Path) -> int:
     data = load_tum(in_path)
-    rows = to_origin_normalized_2d(data)
+    rows = to_first_frame_velocity(data)
     write_jsonl(rows, out_path)
     return rows.shape[0]
 
@@ -92,8 +127,8 @@ def export_one(in_path: Path, out_path: Path) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Convert TUM trajectories to JSONL with timestamp, odom_x, "
-            "odom_y, and odom_theta in each trajectory's first-pose frame."
+            "Convert TUM trajectories to JSONL with timestamp, vx, vy, "
+            "and vtheta in each trajectory's first-pose frame."
         )
     )
     parser.add_argument("--odom-in", type=Path, default=Path("data/Odom.tum"))
